@@ -62,7 +62,22 @@ app.put('/tasks/:id', (req, res) => {
 
     task.done = !task.done;
 
-    res.json(200).json(task)
+    res.status(200).json(task)
+})
+
+app.delete('/tasks/:id', (req, res) => {
+    const taskId = Number(req.params.id);
+
+    const taskPosition = tasks.findIndex(t => t.id === taskId);
+
+    if (taskPosition === -1) {
+        return res.status(404).json({error: "Task not found" })
+    }
+
+    tasks.splice(taskPosition, 1);
+
+    res.status(204).send();
+
 })
 
 

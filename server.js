@@ -1,6 +1,11 @@
-import express from 'express'
+const express = require('express');
 
 const app = express();
+
+const swaggerUi = require('swagger-ui-express');
+const openapiSpec = require('.//openapi.json');
+
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 app.use(express.json());
 

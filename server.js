@@ -2,6 +2,8 @@ import express from 'express'
 
 const app = express();
 
+app.use(express.json());
+
 const tasks = [
     { id: 1, title: 'Learn Node.js', done: true },
     { id: 2, title: 'Complete Todo App using Express', done: false },
@@ -31,6 +33,23 @@ app.get('/tasks/:id', (req, res) => {
 
     res.json(task);
 });
+
+app.post('/tasks/', (req, res) => {
+    const { title } = req.body;
+
+    if (!title) {
+        res.status(400).json({ error: "Title is required" })
+    } else {
+        const newTask = {
+            id: tasks.length + 1,
+            title,
+            done: false,
+        }
+        tasks.push(newTask);
+        
+        res.status(201).json(newTask)
+    }
+})
 
 
 app.listen(3002, () => {

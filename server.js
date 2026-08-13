@@ -51,6 +51,20 @@ app.post('/tasks/', (req, res) => {
     }
 })
 
+app.put('/tasks/:id', (req, res) => {
+    const taskId = Number(req.params.id);
+
+    const task = tasks.find(t => t.id === taskId);
+
+    if (!task) {
+        return res.status(404).json({error: "Task not found" })
+    }
+
+    task.done = !task.done;
+
+    res.json(200).json(task)
+})
+
 
 app.listen(3002, () => {
     console.log('Server is running on port 3002')

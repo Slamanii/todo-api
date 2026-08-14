@@ -80,44 +80,60 @@ app.get('/tasks/:id', (req, res) => {
 app.post('/tasks/', (req, res) => {
     const { title } = req.body;
 
-    if (!title) {
+    if (!title || title.trim() === '') {
         res.status(400).json({ error: "Title is required" })
-    } else {
-        const newTask = {
-            id: tasks.length + 1,
-            title,
-            done: false,
-        }
-        tasks.push(newTask);
+    } 
+    
+    const result = db.prepare(`
+        INSERT INTO tasks (title, done)
+        VALUES (?, ?)
+        `).run(title, 0);
         
-        res.status(201).json(newTask)
-    }
-})
+    const newTask = db
+        .prepare('SELECT * FROM tasks WHERE id = ?')
+        .get(result.lastInsertRowid);          
+            
+                
+        res.status(201).json({ ...newTask, done: Boolean(newTask.done) })
+    
+});
 
 app.put('/tasks/:id', (req, res) => {
     const taskId = Number(req.params.id);
+    const { title, done } = req.body;
 
-    const task = tasks.find(t => t.id === taskId);
-
-    if (!task) {
-        return res.status(404).json({error: "Task not found" })
+    if (!title || title.trim() === '') {
+        return res.status(400).json({ error: 'Title is required' });
     }
 
-    task.done = !task.done;
+    const result = db.prepare(`
+        UPDATE tasks
+        SET title = ?, done = ?
+        WHERE id = ?
+    `).run(title, done ? 1 : 0, taskId);
 
-    res.status(200).json(task)
-})
+    if (result.changes === 0) {
+        return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const updatedTask = db
+        .prepare('SELECT * FROM tasks WHERE id = ?')
+        .get(taskId);
+
+    res.json({
+        ...updatedTask,
+        done: Boolean(updatedTask.done)
+    });
+});
 
 app.delete('/tasks/:id', (req, res) => {
     const taskId = Number(req.params.id);
 
-    const taskPosition = tasks.findIndex(t => t.id === taskId);
+    const result = db.prepare(`DELETE FROM tasks WHERE id = ?`).run(taskId);
 
-    if (taskPosition === -1) {
+    if (result.changes === 0) {
         return res.status(404).json({error: "Task not found" })
     }
-
-    tasks.splice(taskPosition, 1);
 
     res.status(204).send();
 

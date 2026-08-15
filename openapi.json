@@ -1,17 +1,17 @@
 {
-    "openapi": "3.0.0",
-    "info": {
-        "title": "Todo Api",
-        "version": "1.0.0",
-        "description": "A simple todo Api"
-    },
-    "servers": [
-        { 
-            "url": "http://localhost:3002"
-        }
-    ],
-    "paths": {
-        "/": {
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Todo API",
+    "version": "1.0.0",
+    "description": "A simple todo API with Supabase authentication"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3002"
+    }
+  ],
+  "paths": {
+    "/": {
       "get": {
         "summary": "Check if the API is running",
         "responses": {
@@ -28,6 +28,7 @@
         }
       }
     },
+
     "/tasks": {
       "get": {
         "summary": "Get all tasks",
@@ -47,6 +48,7 @@
           }
         }
       },
+
       "post": {
         "summary": "Create a new task",
         "requestBody": {
@@ -86,6 +88,7 @@
         }
       }
     },
+
     "/tasks/{id}": {
       "get": {
         "summary": "Get a task by ID",
@@ -117,6 +120,62 @@
           }
         }
       },
+
+      "put": {
+        "summary": "Update a task",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTask"
+              },
+              "example": {
+                "title": "Learn Express",
+                "done": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Title is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+
       "delete": {
         "summary": "Delete a task by ID",
         "parameters": [
@@ -140,9 +199,214 @@
           }
         }
       }
+    },
+
+    "/auth/signup": {
+      "post": {
+        "summary": "Create a user account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthCredentials"
+              },
+              "example": {
+                "email": "test@example.com",
+                "password": "Password123!"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User signed up successfully"
+          },
+          "400": {
+            "description": "Signup failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/auth/login": {
+      "post": {
+        "summary": "Log in a user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthCredentials"
+              },
+              "example": {
+                "email": "test@example.com",
+                "password": "Password123!"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful"
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/auth/logout": {
+      "post": {
+        "summary": "Log out the authenticated user",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Logged out successfully"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/public/info": {
+      "get": {
+        "summary": "Get public information",
+        "responses": {
+          "200": {
+            "description": "Public information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "This is public information"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/protected/profile": {
+      "get": {
+        "summary": "Get the authenticated user's profile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authenticated user profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/protected/dashboard": {
+      "get": {
+        "summary": "Get the authenticated user's dashboard",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dashboard information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Welcome to your dashboard"
+                    },
+                    "user_id": {
+                      "type": "string",
+                      "example": "12345678-1234-1234-1234-123456789abc"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
+
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+
     "parameters": {
       "TaskId": {
         "name": "id",
@@ -154,6 +418,7 @@
         }
       }
     },
+
     "schemas": {
       "Task": {
         "type": "object",
@@ -177,6 +442,7 @@
           }
         }
       },
+
       "CreateTask": {
         "type": "object",
         "required": [
@@ -189,6 +455,63 @@
           }
         }
       },
+
+      "UpdateTask": {
+        "type": "object",
+        "required": [
+          "title",
+          "done"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Learn Express"
+          },
+          "done": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+
+      "AuthCredentials": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "test@example.com"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "example": "Password123!"
+          }
+        }
+      },
+
+      "UserProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+
       "Error": {
         "type": "object",
         "properties": {
@@ -199,6 +522,5 @@
         }
       }
     }
-
-    }
+  }
 }

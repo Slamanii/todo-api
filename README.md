@@ -98,3 +98,49 @@ id  title                                done
 ### Database viewer screenshot
 
 ![Database screenshot](./db-screenshot.png)
+
+
+## Persistence Verification
+
+I verified that PostgreSQL data survives restarting the application
+and database containers.
+
+1. Started both containers:
+
+   docker compose up -d --build
+
+2. Created test tasks using the API:
+
+   curl -i -X POST http://localhost:3002/tasks \
+     -H "Content-Type: application/json" \
+     -d '{"title":"Test persistence"}'
+
+   curl -i -X POST http://localhost:3002/tasks \
+     -H "Content-Type: application/json" \
+     -d '{"title":"Restart containers"}'
+
+3. Confirmed the tasks existed:
+
+   curl -i http://localhost:3002/tasks
+
+4. Restarted both actual containers:
+
+   docker compose restart app postgres
+
+5. Requested the tasks again:
+
+   curl -i http://localhost:3002/tasks
+
+6. The previously created tasks were still present.
+
+7. I also tested persistence across container recreation:
+
+   docker compose down
+   docker compose up -d
+
+8. I ran GET /tasks again and confirmed the tasks were still present.
+
+The PostgreSQL data persisted because the database uses the named
+`postgres_data` Docker volume mounted at `/var/lib/postgresql/data`.
+
+9. Keep the postgres Config folder in the dir if you might want to resuse sqlite-3

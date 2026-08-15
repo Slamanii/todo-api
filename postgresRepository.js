@@ -26,7 +26,7 @@ async function create(title) {
         [title]
     );
     return results.rows[0];
-
+}
     async function update(id, title, done) {
         const results = await pool.query(
             `UPDATE tasks
@@ -53,4 +53,4 @@ module.exports = {
     update,
     remove
 };
-}
+

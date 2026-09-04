@@ -1,0 +1,10 @@
+[
+  { "raw_name": "Guaranty Trust Bank", "expected": "GTBANK" },
+  { "raw_name": "GTB", "expected": "GTBANK" },
+  { "raw_name": "Access Bank Plc", "expected": "ACCESS BANK" },
+  { "raw_name": "united bank for africa", "expected": "UBA" },
+  { "raw_name": "zenith", "expected": "ZENITH BANK" },
+  { "raw_name": "opay wallet", "expected": "OPAY" },
+  { "raw_name": "moniepoint mfb", "expected": "MONIEPOINT", "note": "ambiguous-ish: MFB suffix could read as a different microfinance bank" },
+  { "raw_name": "Kuda Bank", "expected": "OTHERS", "note": "real bank but not on the canonical list" }
+]

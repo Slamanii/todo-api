@@ -1,13 +1,16 @@
 require('dotenv').config();
 
+if (typeof globalThis.WebSocket === 'undefined') {
+    globalThis.WebSocket = require('ws');
+}
 
 const { createClient } = require('@supabase/supabase-js');
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 
 const express = require('express');
 const Database = require('better-sqlite3');
 const repository = require('./postgresRepository');
+const bankNormalizer = require('./src/bank-normalizer/service');
 
 const db = new Database('tasks.db');
 
@@ -169,6 +172,21 @@ app.post('/auth/logout', authMiddleware, async (req, res) => {
     }
 
     res.status(204).send();
+});
+
+app.post('/normalize', async (req, res) => {
+    const { error, rawName } = bankNormalizer.validateInput(req.body);
+
+    if (error) {
+        return res.status(400).json({ error });
+    }
+
+    try {
+        const result = await bankNormalizer.normalize(rawName);
+        res.status(200).json(result);
+    } catch (err) {
+        res.status(422).json({ error: 'Could not produce a valid classification' });
+    }
 });
 
 ///endpoints

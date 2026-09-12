@@ -104,13 +104,15 @@ id  title                                done
 
 `POST /normalize` takes a messy, free-text bank or PTSP name — the kind you actually see in PTSA reporting data (misspellings, abbreviations, legal-entity suffixes) — and maps it to exactly one canonical name from a fixed list of nine values (`ACCESS BANK`, `GTBANK`, `UBA`, `ZENITH BANK`, `FIRST BANK`, `OPAY`, `MONIEPOINT`, `PALMPAY`, `OTHERS`). It never invents a name outside that list and never returns free text; when the input is ambiguous or refers to an entity not on the list, it returns `OTHERS` with confidence below 0.5 instead of guessing.
 
+As of the Background Jobs update below, this now runs as an Inngest background job instead of a synchronous call — see [Background Jobs (Inngest)](#background-jobs-inngest) for the current request/response shape (`202` + poll). The example below shows the original synchronous contract for reference.
+
 ```bash
 curl -i -X POST http://localhost:3002/normalize \
   -H "Content-Type: application/json" \
   -d '{"raw_name":"GT bank plc"}'
 ```
 
-Expected output:
+Expected output (synchronous version):
 
 ```
 HTTP/1.1 200 OK
@@ -121,7 +123,7 @@ Content-Type: application/json; charset=utf-8
 
 **Job card:** see [job-card.md](./job-card.md).
 
-**Provider/model:** OpenRouter, `minimax/minimax-m2.7:free`. The prompt lives in [prompts/normalize-v1.md](./prompts/normalize-v1.md) and is sent as the system message; the raw name is sent as the user message, never glued into the system prompt.
+**Provider/model:** OpenRouter. Free-tier `:free` models rotate in and out of availability, so the model in `.env` has changed a few times during development (currently `nvidia/nemotron-3.5-lightning:free`); the eval score and cost estimate below were measured against `minimax/minimax-m2.7:free` before it was pulled from the free tier. The prompt lives in [prompts/normalize-v1.md](./prompts/normalize-v1.md) and is sent as the system message; the raw name is sent as the user message, never glued into the system prompt.
 
 **Environment:** copy `.env.example` to `.env` and set `LLM_API_KEY` to your own OpenRouter key. `LLM_STUB=1` returns a hardcoded valid response with zero model calls (used for testing input validation and wiring). `LLM_ENABLED=false` is a kill switch that returns a safe `OTHERS`/confidence-0 fallback, also with zero model calls.
 
@@ -132,6 +134,85 @@ Content-Type: application/json; charset=utf-8
 **Cost estimate at 10,000 requests/day:** the free-tier model costs $0 but is rate-limited and not suitable at this volume. On the paid tier of the same model (~458 prompt + ~176 completion tokens/call observed, $0.30/$1.20 per M tokens respectively), that's roughly $0.00035/call → **~$3.50/day (~$105/month)**. Switching to `openai/gpt-4o-mini` ($0.15/$0.60 per M tokens) drops that to roughly **~$1.75/day (~$52/month)** at the same token volume.
 
 **What I'd fix with another day:** the repair-retry prompt re-sends the entire broken JSON and error inline as a user message rather than using the provider's structured-output/JSON-mode feature (not all OpenRouter models expose it consistently), which would make schema failures rarer in the first place instead of relying on a second round-trip.
+
+## Background Jobs (Inngest)
+
+`/normalize` used to call the LLM synchronously inside the request/response cycle. It now enqueues a background job with [Inngest](https://www.inngest.com/) and returns immediately, so a slow or retried model call never holds an HTTP connection open. This is the same pattern as the Bookstore Report pipeline above, but wrapping a real LLM call instead of a fixed sleep.
+
+### Running it
+
+You need two terminals:
+
+```bash
+# terminal 1 — the API server
+node server.js
+
+# terminal 2 — the Inngest Dev Server (dashboard + local event/run queue)
+npx inngest-cli@latest dev -u http://localhost:3002/api/inngest --port 8288
+```
+
+The Dev Server dashboard is at `http://localhost:8288`. Set `INNGEST_DEV=1` in `.env` (already in `.env.example`) so the app runs in local dev mode without a signing key.
+
+### Endpoints and functions
+
+| Type | Name | Trigger | Purpose |
+|---|---|---|---|
+| Endpoint | `POST /normalize` | HTTP | Validates input, creates a `pending` job, sends a `normalize/requested` event, returns `202` immediately |
+| Endpoint | `GET /normalize/:id` | HTTP | Returns the job's current state: `pending`, `done` (with result), or `failed` (with error) |
+| Function | `do-normalize` | event `normalize/requested` | Runs the actual LLM normalization inside `step.run`, then saves the result |
+| Function | `normalize-heartbeat` | cron `* * * * *` | Logs a one-line `pending/done/failed` job count every minute; not wired to any endpoint |
+| Function | `say-hello` | event `test/say-hello` (dev only) | Throwaway function used in Stage 1 to prove the Inngest wiring worked before touching real code |
+
+### Proof: 202 then poll to done
+
+```
+$ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST http://localhost:3002/normalize \
+    -H "Content-Type: application/json" -d '{"raw_name":"GTB"}'
+{"id":"82e60737-51f5-4511-9113-76d1020b71ad","status":"pending"}
+HTTP_STATUS:202
+
+$ curl -s http://localhost:3002/normalize/82e60737-51f5-4511-9113-76d1020b71ad
+{"id":"82e60737-51f5-4511-9113-76d1020b71ad","raw_name":"GTB","status":"pending"}
+
+# a few seconds later
+$ curl -s http://localhost:3002/normalize/82e60737-51f5-4511-9113-76d1020b71ad
+{"id":"82e60737-51f5-4511-9113-76d1020b71ad","raw_name":"GTB","status":"done","canonical_name":"GTBANK","confidence":0.95,"reason":"GTB is a common abbreviated form of GTBank."}
+```
+
+Bad input is still rejected synchronously before any job or event is created:
+
+```
+$ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST http://localhost:3002/normalize -d '{}'
+{"error":"raw_name is required and must be a string between 1 and 100 characters"}
+HTTP_STATUS:400
+```
+
+### Two retry layers, and why both stay
+
+There are now two independent retry mechanisms wrapping the same LLM call, and I kept both on purpose:
+
+- **`src/llm/client.js`'s own retry loop** (unchanged from before Inngest) retries a single attempt up to 2 times, only for timeouts/429/5xx, with backoff+jitter measured in hundreds of milliseconds to a few seconds. This layer exists because those failure modes are often resolved by retrying within the same second or two — there's no reason to pay Inngest's much coarser retry delay for a transient blip that a quick local retry would fix, and it keeps the "normal" path fast.
+- **Inngest's step-level retry** (`step.run('call-model', ...)`, default 4 retries) is a coarser, much slower safety net on top. It retries the *entire* `bankNormalizer.normalize()` call — including the client's own retry loop — on any uncaught error, with its own exponential backoff (attempts were spaced from instant up to multiple minutes apart in testing). This layer exists for failures the client layer deliberately doesn't retry (auth errors, exhausted client retries, or a crash anywhere else in `normalize()`), and for durability: if the app process restarts mid-job, Inngest still knows the step needs to run again.
+
+They don't conflict because they're retrying different things at different granularities: the client layer is "is this one HTTP call worth retrying immediately," and the Inngest layer is "did the whole unit of work succeed at all, and if not, keep the job alive and try again later." Removing the client layer would mean every transient 429 pays Inngest's much slower backoff; removing the Inngest layer would mean a truly broken key or a process crash leaves the job stuck in `pending` forever with no record of failure.
+
+### Stage 3: forcing a real failure
+
+I temporarily broke `LLM_API_KEY` in `.env` (invalid key → OpenRouter returns `401 User not found`) and sent a valid request. Since 401 is explicitly non-retryable in `src/llm/client.js`, each individual attempt failed fast (~500-700ms) with zero client-side retries — but `step.run` still saw an uncaught error each time, so Inngest retried the step itself. The run went through **5 total attempts** (1 initial + Inngest's default 4 retries), spaced out over Inngest's own exponential backoff (about 4.5 minutes from first attempt to the run being marked `Failed`), confirmed via the Dev Server's `GET /v1/runs/:id`. Once retries were exhausted, the `onFailure` handler fired and wrote `status: "failed"` with the underlying error message to the job record, which `GET /normalize/:id` then returned. I restored the real key afterward and confirmed a normal request completes end-to-end again.
+
+Throughout this, bad input (missing `raw_name`) kept returning a clean synchronous `400` with no Inngest event ever sent — that check happens before the job is created, so it's unaffected by whether the LLM key is healthy.
+
+### Stage 4: heartbeat
+
+`normalize-heartbeat` runs on a `* * * * *` cron, independent of any HTTP request, and logs `[normalize-heartbeat] pending=<n> done=<n> failed=<n>` using the same in-memory job store the endpoints read from. After the Stage 3 failure test and a follow-up successful request, a heartbeat tick correctly logged `pending=0 done=1 failed=0` (the failed job's count reset because the in-memory store is cleared on server restart, which happened between the two tests).
+
+### Dashboard screenshots
+
+_(To add: a completed `do-normalize` run, a failed run showing the 5 retry attempts, and a few `normalize-heartbeat` ticks, captured from `http://localhost:8288`.)_
+
+### What's next
+
+The job store (`src/inngest/normalizeJobs.js`) is an in-memory `Map`, so job state is lost on server restart — fine for this exercise, but a real deployment would persist jobs the same way the Bookstore Report pipeline persists reports (a SQLite/Postgres table), so `GET /normalize/:id` survives restarts and multiple app instances can share job state.
 
 ## Persistence Verification
 

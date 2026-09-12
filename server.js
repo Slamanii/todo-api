@@ -14,6 +14,13 @@ const bankNormalizer = require('./src/bank-normalizer/service');
 const { getReportData } = require('./src/reports/getReportData');
 const { generatePdf } = require('./src/reports/generatePdf');
 const reportsRepository = require('./src/reports/reportsRepository');
+const crypto = require('crypto');
+const { serve } = require('inngest/express');
+const { inngest } = require('./src/inngest/client');
+const { sayHello } = require('./src/inngest/sayHello');
+const { doNormalize } = require('./src/inngest/doNormalize');
+const { heartbeat } = require('./src/inngest/heartbeat');
+const normalizeJobs = require('./src/inngest/normalizeJobs');
 
 const db = new Database('tasks.db');
 
@@ -25,6 +32,8 @@ const openapiSpec = require('.//openapi.json');
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 app.use(express.json());
+
+app.use('/api/inngest', serve({ client: inngest, functions: [sayHello, doNormalize, heartbeat] }));
 
 
 
@@ -184,12 +193,22 @@ app.post('/normalize', async (req, res) => {
         return res.status(400).json({ error });
     }
 
-    try {
-        const result = await bankNormalizer.normalize(rawName);
-        res.status(200).json(result);
-    } catch (err) {
-        res.status(422).json({ error: 'Could not produce a valid classification' });
+    const id = crypto.randomUUID();
+    normalizeJobs.create(id, rawName);
+
+    await inngest.send({ name: 'normalize/requested', data: { id, raw_name: rawName } });
+
+    res.status(202).json({ id, status: 'pending' });
+});
+
+app.get('/normalize/:id', (req, res) => {
+    const job = normalizeJobs.get(req.params.id);
+
+    if (!job) {
+        return res.status(404).json({ error: 'not found' });
     }
+
+    res.json(job);
 });
 
 ///endpoints

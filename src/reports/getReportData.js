@@ -13,11 +13,16 @@ function getReportData() {
         .prepare('SELECT rating, COUNT(*) AS count FROM books GROUP BY rating ORDER BY rating')
         .all();
 
+    const books = db
+        .prepare('SELECT title, price, rating, url FROM books ORDER BY title')
+        .all();
+
     return {
         total,
         average_price,
         top_five: topFive,
         by_rating: byRating,
+        books,
     };
 }
 

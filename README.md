@@ -177,3 +177,86 @@ The PostgreSQL data persisted because the database uses the named
 `postgres_data` Docker volume mounted at `/var/lib/postgresql/data`.
 
 9. Keep the postgres Config folder in the dir if you might want to resuse sqlite-3
+
+## Bookstore Report
+
+Generates a PDF report (totals, top 5 most expensive, full book list) from
+book data pulled out of my [Books to Scrape scraper](https://github.com/Slamanii/Scrapescrape) —
+real scraped data, not made-up shop orders. Own SQLite file (`report.db`),
+separate from `tasks.db`.
+
+**Setup:**
+
+```bash
+npm install
+npx playwright install chromium
+npm run seed
+node server.js
+```
+
+`npm run seed` reads `data/books.json` (a copy of the scraper's output,
+committed here so the project runs standalone) and does a delete-all-then-
+insert into the `books` table, so running it more than once never doubles
+your rows.
+
+**The four aggregations** (`src/reports/getReportData.js`):
+
+```sql
+SELECT COUNT(*) AS total FROM books;
+
+SELECT AVG(price) AS average_price FROM books;
+
+SELECT title, price, rating, url FROM books ORDER BY price DESC LIMIT 5;
+
+SELECT rating, COUNT(*) AS count FROM books GROUP BY rating ORDER BY rating;
+```
+
+I cross-checked all four against the raw scraped JSON directly (not just
+against the DB) before trusting them — rating counts came out
+`{1: 15, 2: 8, 3: 13, 4: 10, 5: 14}` both ways, summing to 60.
+
+**Generating a report:**
+
+```bash
+curl -i -X POST http://localhost:3002/reports
+```
+
+First call of the day: `201`, new PDF written to `reports/`, row inserted
+into the `reports` table. Calling it again the same day returns the
+existing report with `200` instead of generating a new one:
+
+```bash
+curl -i -X POST http://localhost:3002/reports   # 201, id 1
+curl -i -X POST http://localhost:3002/reports   # 200, same id 1
+curl -i -X POST http://localhost:3002/reports \
+  -H "Content-Type: application/json" -d '{"force":true}'  # 201, new id
+```
+
+```
+GET  /reports/:id        -> the report row (id, path, created_at)
+GET  /reports/:id/file   -> the actual PDF bytes
+```
+
+`GET /reports/:id/file` is the only endpoint that ever moves real file
+bytes off disk — everything else in this API stays JSON.
+
+**Why this is inline and not a background job:** report generation here
+takes a couple of seconds (SQL + Playwright launching a real headless
+Chromium), so `POST /reports` just blocks and returns once it's done —
+the brief for this assignment says that's fine at this scale. I'd move
+this onto the queue I already built in this repo's earlier stages once
+report generation regularly exceeds a few seconds or runs for many
+concurrent users at once.
+
+**Page-break trap:** the first render I generated had the header row of
+the "all books" table only appearing on page 1 — normal for an HTML table
+across a PDF page break. Fixed by wrapping the header in `<thead>` (repeats
+per page) and setting `tr { break-inside: avoid; }` so no row gets sliced
+across the boundary. Sample below is page 1 of a 3-page report over all 60
+books:
+
+![Report page 1](./docs/report-page1.png)
+
+`report.db` and `reports/` are gitignored — neither the SQLite file nor
+generated PDFs are committed, only the code and the `data/books.json`
+fixture needed to seed it.

@@ -11,6 +11,9 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const repository = require('./postgresRepository');
 const bankNormalizer = require('./src/bank-normalizer/service');
+const { getReportData } = require('./src/reports/getReportData');
+const { generatePdf } = require('./src/reports/generatePdf');
+const reportsRepository = require('./src/reports/reportsRepository');
 
 const db = new Database('tasks.db');
 
@@ -261,6 +264,52 @@ app.delete('tasks/:id', (req, res) => {
 
     res.status(204).send();
 })
+
+function reportResponse(report) {
+    return {
+        id: report.id,
+        path: report.path,
+        created_at: report.created_at,
+        file_url: `/reports/${report.id}/file`,
+    };
+}
+
+app.post('/reports', async (req, res) => {
+    const force = Boolean(req.body && req.body.force === true);
+
+    if (!force) {
+        const existing = reportsRepository.findTodays();
+        if (existing) {
+            return res.status(200).json(reportResponse(existing));
+        }
+    }
+
+    const reportData = getReportData();
+    const filePath = await generatePdf(reportData);
+    const report = reportsRepository.insert(filePath);
+
+    res.status(201).json(reportResponse(report));
+});
+
+app.get('/reports/:id', (req, res) => {
+    const report = reportsRepository.findById(Number(req.params.id));
+
+    if (!report) {
+        return res.status(404).json({ error: 'Report not found' });
+    }
+
+    res.json(report);
+});
+
+app.get('/reports/:id/file', (req, res) => {
+    const report = reportsRepository.findById(Number(req.params.id));
+
+    if (!report) {
+        return res.status(404).json({ error: 'Report not found' });
+    }
+
+    res.sendFile(report.path);
+});
 
 app.listen(3002, () => {
     console.log('Server is running on port 3002')
